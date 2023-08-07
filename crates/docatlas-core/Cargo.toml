@@ -11,6 +11,7 @@ default = []
 [dependencies]
 cfg-if = "1.0.0"
 crossbeam = "0.8.2"
+hexdump = "0.1.1"
 memmap = "0.7.0"
 num-bigfloat = "1.6.2"
 num-traits = "0.2.16"
@@ -18,6 +19,7 @@ parking_lot = "0.12.1"
 postcard = "1.0.6"
 serde = { version = "1.0.182", features = ["derive"] }
 static_assertions = "1.1.0"
+thiserror = "1.0.44"
 
 [dev-dependencies]
 tempfile = "3.7.0"

@@ -14,9 +14,12 @@ use std::sync::Arc;
 
 use memmap::MmapMut;
 use parking_lot::RwLock;
+use postcard::fixint::be::serialize;
 use postcard::ser_flavors::Slice;
 use serde::de::DeserializeOwned;
+use serde::ser::Error as SerError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use thiserror::Error;
 
 use crate::prelude::*;
 
@@ -34,7 +37,6 @@ pub struct SegmentBuilder<T = ()> {
 }
 
 impl<T> SegmentBuilder<T> {
-
     /// Sets where the segment data is stored
     pub fn stored_at(mut self, path: impl AsRef<Path>) -> Self {
         self.disk_path = Some(path.as_ref().to_path_buf());
@@ -88,20 +90,29 @@ impl<T> SegmentBuilder<T> {
 
 impl<T: DeserializeOwned + Serialize> SegmentBuilder<T> {
     pub fn build(self) -> Result<Segment<T>, io::Error> {
-        let is_empty = if let Some(path) = &self.disk_path {
-            !path.exists()
-        } else {
-            self.initial_data.is_none()
-        };
+        let is_empty = self.initial_data.is_none()
+            && if let Some(path) = &self.disk_path {
+                !path.exists()
+            } else {
+                true
+            };
 
         if is_empty {
-            return Err(io::Error::new(ErrorKind::InvalidData, "must have initial value set for new buffers").into())
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "must have initial value set for new buffers",
+            )
+            .into());
         }
 
         let (file, mut mmap) = match &self.disk_path {
             None => (None, MmapMut::map_anon(self.size)?),
             Some(path) => {
-                let file = File::options().write(true).read(true).open(path)?;
+                let file = File::options()
+                    .write(true)
+                    .read(true)
+                    .create(true)
+                    .open(path)?;
 
                 if file.metadata()?.len() != self.size as u64 {
                     file.set_len(self.size as u64)?;
@@ -114,7 +125,11 @@ impl<T: DeserializeOwned + Serialize> SegmentBuilder<T> {
 
         if let Some(ref value) = self.initial_data {
             write_to_map(value, &mut mmap).map_err(|e| {
-                Error::new(io::Error::new(ErrorKind::InvalidData, "invalid initial data")).with_cause(e)
+                Error::new(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "invalid initial data",
+                ))
+                .with_cause(e)
             })?;
         }
 
@@ -141,7 +156,73 @@ impl Segments {
     }
 }
 
-/// A segment
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SegmentPersist<T> {
+    disk_path: PathBuf,
+    size: usize,
+    kind: PhantomData<T>,
+}
+
+impl<T> TryFrom<&Segment<T>> for SegmentPersist<T> {
+    type Error = SegmentPersistError;
+
+    fn try_from(value: &Segment<T>) -> std::result::Result<Self, Self::Error> {
+        match &value.disk_path {
+            None => Err(SegmentPersistError::MustBeFileBacked),
+            Some(path) => Ok(SegmentPersist {
+                disk_path: path.clone(),
+                size: value.size(),
+                kind: PhantomData,
+            }),
+        }
+    }
+}
+
+impl<T> Serialize for Segment<T> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match SegmentPersist::try_from(self) {
+            Ok(ok) => ok.serialize(serializer),
+            Err(e) => Err(S::Error::custom(e)),
+        }
+    }
+}
+
+impl<T: Serialize + DeserializeOwned> TryFrom<SegmentPersist<T>> for Segment<T> {
+    type Error = Error<io::Error>;
+
+    fn try_from(value: SegmentPersist<T>) -> std::result::Result<Self, Self::Error> {
+        Segments
+            .builder()
+            .with_type::<T>()
+            .with_capacity(value.size)
+            .stored_at(&value.disk_path)
+            .build()
+    }
+}
+
+impl<'de, T: Serialize + DeserializeOwned> Deserialize<'de> for Segment<T> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let persist = SegmentPersist::<T>::deserialize(deserializer)?;
+        Segment::try_from(persist).map_err(|e| serde::de::Error::custom(e))
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum SegmentPersistError {
+    #[error("segment must be file backed to be persisted")]
+    MustBeFileBacked,
+}
+
+
+
+/// A segment stores data in memory and with a file backing
 pub struct Segment<T> {
     file: Option<File>,
     disk_path: Option<PathBuf>,
@@ -152,9 +233,26 @@ pub struct Segment<T> {
 impl<T: Debug> Debug for Segment<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Segment")
-            .field("disk_path", &self.disk_path)
-            .field("size", &self.mem_map.as_ref().len())
-            .finish_non_exhaustive()
+         .field("disk_path", &self.disk_path)
+         .field("size", &self.mem_map.as_ref().len())
+         .finish_non_exhaustive()
+    }
+}
+
+impl<T> Segment<T> {
+
+    /// Hex dumps the contents of this segment
+    pub fn hexdump(&self, count: usize, page: usize) {
+        let start = (count * page).clamp(0, self.size());
+        let end = (count * (page + 1)).clamp(0, self.size());
+        hexdump::hexdump(&self.mem_map.as_ref()[
+            start..end
+        ])
+    }
+
+    /// Gets the size of the segment
+    pub fn size(&self) -> usize {
+        self.mem_map.as_ref().len()
     }
 }
 
@@ -292,6 +390,8 @@ fn write_to_map<T: Serialize>(value: &T, mmap: &mut MmapMut) -> Result<(), postc
     Ok(())
 }
 
+
+
 /// Segment holder and creator
 #[derive(Debug)]
 pub struct SegmentMap<T: Serialize + DeserializeOwned> {
@@ -301,6 +401,7 @@ pub struct SegmentMap<T: Serialize + DeserializeOwned> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn can_create_segment() {
@@ -330,5 +431,30 @@ mod tests {
             .unwrap_err();
 
         println!("{}", error);
+    }
+
+    #[test]
+    fn multi_layer_segments() {
+        let temp_dir = tempdir().unwrap();
+        let file = temp_dir.path().join("temp#1");
+
+        let map = (0..64).into_iter().map(|i| (i, i*i)).collect::<HashMap<_, _>>();
+
+        let mut inner = Segments
+            .builder()
+            .stored_at(file)
+            .with_capacity(512)
+            .with_initial_value(map)
+            .build()
+            .unwrap();
+
+        inner.hexdump(256, 0);
+
+
+        let segment = Segments
+            .builder()
+            .with_initial_value([inner])
+            .build()
+            .unwrap();
     }
 }
