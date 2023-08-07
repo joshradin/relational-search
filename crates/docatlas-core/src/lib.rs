@@ -1,14 +1,25 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+//! The core of doctatlas.
+//!
+//!
+
+pub mod document;
+pub mod error;
+pub mod fields;
+pub mod index;
+
+pub mod result {
+    //! Contains the result type definition, with the custom [Error](crate::error::Error) as it's result
+    use crate::error::Error;
+
+    /// The result type override.
+    pub type Result<T, E> = std::result::Result<T, Error<E>>;
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod prelude {
+    //! The prelude re-exports common types and functions
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+    pub use crate::{
+        error::{AnyError, Error},
+        result::Result,
+    };
 }
