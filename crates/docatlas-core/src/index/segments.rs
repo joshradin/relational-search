@@ -125,11 +125,10 @@ impl<T: DeserializeOwned + Serialize> SegmentBuilder<T> {
 
         if let Some(ref value) = self.initial_data {
             write_to_map(value, &mut mmap).map_err(|e| {
-                Error::new(io::Error::new(
+                io::Error::new(
                     ErrorKind::InvalidData,
-                    "invalid initial data",
-                ))
-                .with_cause(e)
+                    e,
+                )
             })?;
         }
 
@@ -192,7 +191,7 @@ impl<T> Serialize for Segment<T> {
 }
 
 impl<T: Serialize + DeserializeOwned> TryFrom<SegmentPersist<T>> for Segment<T> {
-    type Error = Error<io::Error>;
+    type Error = io::Error;
 
     fn try_from(value: SegmentPersist<T>) -> std::result::Result<Self, Self::Error> {
         Segments

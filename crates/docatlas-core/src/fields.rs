@@ -31,7 +31,7 @@ pub struct Field {
 }
 
 /// The kind of the field
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldKind {
     /// Keywords are non-tokenized
     Keyword,
@@ -39,8 +39,6 @@ pub enum FieldKind {
     Text,
     /// Just a number
     Number,
-    /// A sub document
-    Nested,
 }
 
 impl FieldKind {
