@@ -6,4 +6,6 @@
 //! # Authentication
 //! Check if a user is valid
 
-pub mod lock_api;
+pub mod authorization;
+pub mod authentication;
+pub mod users;

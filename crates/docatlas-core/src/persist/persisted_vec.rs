@@ -1,0 +1,1 @@
+//! A persisted vector
