@@ -1,21 +1,22 @@
 //! Contains shared object defintitions
 
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// A shared, thread safe object
 #[derive(Debug, Default)]
 pub struct Shared<T> {
-    inner: Arc<RwLock<T>>
+    inner: Arc<RwLock<T>>,
 }
 
 impl<T> Shared<T> {
-
     /// Creates a new shared value
     pub fn new(v: T) -> Self {
-        Self { inner: Arc::new(RwLock::new(v))}
+        Self {
+            inner: Arc::new(RwLock::new(v)),
+        }
     }
 
     pub fn read(&self) -> SharedReadGuard<T> {
@@ -25,9 +26,7 @@ impl<T> Shared<T> {
     }
 
     pub fn try_read(&self) -> Option<SharedReadGuard<T>> {
-        self.inner.try_read().map(|guard| SharedReadGuard {
-            guard
-        })
+        self.inner.try_read().map(|guard| SharedReadGuard { guard })
     }
 
     pub fn write(&self) -> SharedWriteGuard<T> {
@@ -37,9 +36,9 @@ impl<T> Shared<T> {
     }
 
     pub fn try_write(&self) -> Option<SharedWriteGuard<T>> {
-        self.inner.try_write().map(|guard| SharedWriteGuard {
-            guard
-        })
+        self.inner
+            .try_write()
+            .map(|guard| SharedWriteGuard { guard })
     }
 }
 
@@ -52,9 +51,7 @@ impl<T> PartialEq for Shared<T> {
     }
 }
 
-impl<T> Eq for Shared<T> {
-
-}
+impl<T> Eq for Shared<T> {}
 
 impl<T> Hash for Shared<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -65,14 +62,16 @@ impl<T> Hash for Shared<T> {
 
 impl<T> Clone for Shared<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
 /// A read guard of a shared value.
 #[derive(Debug)]
 pub struct SharedReadGuard<'a, T> {
-    guard: RwLockReadGuard<'a, T>
+    guard: RwLockReadGuard<'a, T>,
 }
 
 impl<T> Deref for SharedReadGuard<'_, T> {
@@ -86,7 +85,7 @@ impl<T> Deref for SharedReadGuard<'_, T> {
 /// A read guard of a shared value.
 #[derive(Debug)]
 pub struct SharedWriteGuard<'a, T> {
-    guard: RwLockWriteGuard<'a, T>
+    guard: RwLockWriteGuard<'a, T>,
 }
 
 impl<T> Deref for SharedWriteGuard<'_, T> {

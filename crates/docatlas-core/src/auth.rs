@@ -6,6 +6,6 @@
 //! # Authentication
 //! Check if a user is valid
 
-pub mod authorization;
 pub mod authentication;
+pub mod authorization;
 pub mod users;

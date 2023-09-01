@@ -156,9 +156,7 @@ mod tests {
         let e = AuthenticationRequest::new().with_basic("username", "password");
 
         assert_eq!(e.payloads.len(), 1);
-        let &AuthenticationRequestPayload::Basic {
-            username, password
-        } = &e.payloads[0] else {
+        let &AuthenticationRequestPayload::Basic { username, password } = &e.payloads[0] else {
             panic!("wrong payload")
         };
 

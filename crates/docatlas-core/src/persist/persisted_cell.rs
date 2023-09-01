@@ -1,5 +1,5 @@
-use crate::persist::block::{Block, Persist};
-use crate::persist::PersistedUnsafeCell;
+use crate::persist::block::Block;
+use crate::persist::{Persist, PersistedUnsafeCell};
 
 /// A mutable, persisted cell that allows for safe usage.
 ///
@@ -11,7 +11,7 @@ pub struct PersistedCell<T: Persist> {
 
 impl<T: Persist> PersistedCell<T> {
     /// A persisted cell
-    pub fn new(block: Block<T>, value: T) -> Self {
+    pub fn new(block: Block, value: T) -> Self {
         Self {
             unsafe_cell: PersistedUnsafeCell::new(block, value),
         }
@@ -69,14 +69,14 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let block = Blocks.new::<usize>();
+        let block = Blocks.new();
         let cell = PersistedCell::new(block, 32);
     }
 
     #[test]
     fn test_swap() {
-        let cell1 = PersistedCell::new(Blocks.new::<usize>(), 32);
-        let cell2 = PersistedCell::new(Blocks.new::<usize>(), 64);
+        let cell1 = PersistedCell::new(Blocks.new(), 32);
+        let cell2 = PersistedCell::new(Blocks.new(), 64);
 
         cell1.swap(&cell2);
         assert_eq!(cell1.get(), 64);
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn test_replace() {
-        let cell = PersistedCell::new(Blocks.new::<usize>(), 32);
+        let cell = PersistedCell::new(Blocks.new(), 32);
         let replaced = cell.replace(64);
         assert_eq!(replaced, 32);
         assert_eq!(cell.get(), 64);
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_take() {
-        let cell = PersistedCell::new(Blocks.new::<usize>(), 32);
+        let cell = PersistedCell::new(Blocks.new(), 32);
         let took = cell.take();
         assert_eq!(took, 32);
         assert_eq!(cell.get(), 0);

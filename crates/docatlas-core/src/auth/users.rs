@@ -17,11 +17,10 @@ impl User {
 pub struct UserFactory;
 
 impl UserFactory {
-
     /// Creates a user object
     pub fn create(&self, name: &str) -> User {
         User {
-            name: name.to_string()
+            name: name.to_string(),
         }
     }
 }

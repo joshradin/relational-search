@@ -2,7 +2,9 @@
 
 use crate::fields::FieldKind;
 use std::iter::FusedIterator;
-use std::ops::{Index, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
+use std::ops::{
+    Index, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+};
 use std::vec::Drain;
 
 /// A schema defines an ordered array of fields
@@ -12,7 +14,6 @@ pub struct Schema {
 }
 
 impl Schema {
-
     /// Creates a new, empty schema
     pub fn new() -> Self {
         Self { fields: vec![] }
@@ -82,8 +83,14 @@ macro_rules! index_range {
     };
 }
 
-index_range!(RangeFull, Range<usize>, RangeInclusive<usize>, RangeTo<usize>, RangeToInclusive<usize>, RangeFrom<usize>);
-
+index_range!(
+    RangeFull,
+    Range<usize>,
+    RangeInclusive<usize>,
+    RangeTo<usize>,
+    RangeToInclusive<usize>,
+    RangeFrom<usize>
+);
 
 impl Extend<SchemaField> for Schema {
     fn extend<T: IntoIterator<Item = SchemaField>>(&mut self, iter: T) {
@@ -110,8 +117,10 @@ impl<'a> IntoIterator for Schema {
 }
 
 impl FromIterator<SchemaField> for Schema {
-    fn from_iter<T: IntoIterator<Item=SchemaField>>(iter: T) -> Self {
-        Self { fields: iter.into_iter().collect() }
+    fn from_iter<T: IntoIterator<Item = SchemaField>>(iter: T) -> Self {
+        Self {
+            fields: iter.into_iter().collect(),
+        }
     }
 }
 #[derive(Debug)]
