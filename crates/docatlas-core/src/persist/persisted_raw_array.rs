@@ -9,11 +9,10 @@ use crate::persist::Persist;
 pub struct PersistedRawArray<T: Persist> {
     block: Block,
     offset: usize,
-    _kind: PhantomData<T>
+    _kind: PhantomData<T>,
 }
 
 impl<T: Persist> PersistedRawArray<T> {
-
     /// Creates a new raw array from a given block, with the array starting at an optional offset from
     /// the beginning of the block.
     pub unsafe fn new(block: Block) -> PersistedRawArray<T> {
@@ -27,7 +26,6 @@ impl<T: Persist> PersistedRawArray<T> {
             _kind: PhantomData,
         }
     }
-
 
     /// Gets the capacity of the raw array.
     pub fn capacity(&self) -> usize {
@@ -52,8 +50,5 @@ impl<T: Persist> PersistedRawArray<T> {
 mod tests {
 
     #[test]
-    fn create_raw_array() {
-
-    }
+    fn create_raw_array() {}
 }
-

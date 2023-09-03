@@ -2,19 +2,16 @@
 //!
 //! Segments store actual data, and can be flushed to/read from disk.
 
-use std::alloc::Layout;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter, Pointer};
 use std::fs::File;
 use std::hash::Hash;
 use std::io;
-use std::marker::PhantomData;
-use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use memmap::MmapMut;
+use memmap::{MmapMut, MmapOptions};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::ser::Error as SerError;
@@ -74,9 +71,10 @@ impl BlockBuilder {
         };
 
         unsafe {
+            let map = MmapMut::map_mut(&file)?;
             Ok(Block {
                 disk_path: Some(path.to_path_buf()),
-                mem_map: MmapMut::map_mut(&file)?,
+                mem_map: map,
             })
         }
     }
@@ -185,15 +183,15 @@ impl Block {
     }
 
     /// Gets an aligned pointer to a type within this block
-    pub unsafe fn as_aligned_ptr<T>(&self) -> *const T {
+    pub unsafe fn as_aligned_ptr<T: Persist>(&self) -> *const T {
         let ptr = self.as_ptr();
-        ptr as *const T
+        T::read(ptr)
     }
 
     /// Gets an aligned mutable pointer to a type within this block
-    pub unsafe fn as_aligned_ptr_mut<T>(&mut self) -> *mut T {
+    pub unsafe fn as_aligned_ptr_mut<T: Persist>(&mut self) -> *mut T {
         let ptr = self.as_ptr_mut();
-        ptr as *mut T
+        T::read(ptr) as *mut _
     }
 
     /// reserves an additional amount of bytes of space in of disk space.
@@ -244,6 +242,12 @@ impl Drop for Block {
         }
         drop(self.mem_map.flush());
     }
+}
+
+/// A block pointer.
+#[derive(Debug)]
+pub struct BlockPtr<T: Persist> {
+    offset: isize,
 }
 
 #[cfg(test)]

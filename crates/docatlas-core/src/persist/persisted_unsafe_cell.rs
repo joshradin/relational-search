@@ -1,11 +1,11 @@
-use std::marker::PhantomData;
 use crate::persist::block::Block;
 use crate::persist::Persist;
+use std::marker::PhantomData;
 
 #[derive(Debug)]
 pub struct PersistedUnsafeCell<T: Persist> {
     block: Block,
-    _kind: PhantomData<T>
+    _kind: PhantomData<T>,
 }
 
 impl<T: Persist> PersistedUnsafeCell<T> {
@@ -14,7 +14,10 @@ impl<T: Persist> PersistedUnsafeCell<T> {
         unsafe {
             block.assert_can_contain::<T>();
             std::ptr::write(block.as_ptr_mut() as *mut T, value);
-            Self { block, _kind: PhantomData }
+            Self {
+                block,
+                _kind: PhantomData,
+            }
         }
     }
 

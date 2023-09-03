@@ -17,7 +17,7 @@ pub struct PersistentVec<T: Persist> {
     _kind: PhantomData<T>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct RawVec<T: Persist>(usize, T);
 
 impl<T: Persist> PersistentVec<T> {
@@ -188,7 +188,6 @@ impl<T: Persist> PersistentVec<T> {
     }
 }
 
-
 impl<T: Persist> AsRef<[T]> for PersistentVec<T> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
@@ -317,8 +316,6 @@ mod test {
 
     #[test]
     fn can_push() {
-
-
         let block = Blocks.new();
         let mut p_vec = PersistentVec::new(block);
 
@@ -342,7 +339,6 @@ mod test {
             assert_eq!(p_vec.len(), i + 1);
             assert_eq!(&p_vec[i], &c);
         }
-
 
         p_vec.block.hexdump(0);
     }
