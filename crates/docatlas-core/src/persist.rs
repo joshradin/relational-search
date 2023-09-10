@@ -1,9 +1,11 @@
 //! Memory stuff
 
 use std::ops::{Deref, DerefMut};
+
 pub use {
-    persisted_cell::PersistedCell, persisted_unsafe_cell::PersistedUnsafeCell,
-    persisted_vec::PersistentVec,
+    persisted_cell::PersistedCell,
+    persisted_unsafe_cell::PersistedUnsafeCell,
+    persisted_vec::{Drain, PersistentVec, Split, SplitMut},
 };
 
 mod block;
@@ -32,12 +34,12 @@ impl<T: Copy> Persist for T {
     }
 }
 
-
 #[derive(Debug)]
 pub struct PData<T: Copy + Sized>([T]);
 impl<T: Copy + Sized> PData<T> {
-    pub fn write<const N: usize>(dest: &mut [u8], data: [T; N]) -> &mut Self {
-        if dest.len() < std::mem::size_of::<usize>() + std::mem::size_of::<T>() * N {
+    pub fn write<I: IntoIterator<Item = T>>(dest: &mut [u8], data: I) -> &mut Self {
+        let data = data.into_iter().collect::<Vec<_>>();
+        if dest.len() < std::mem::size_of::<usize>() + std::mem::size_of::<T>() * data.len() {
             panic!("not enough space to write PData")
         }
 
@@ -51,6 +53,10 @@ impl<T: Copy + Sized> PData<T> {
             let slice_ptr = std::ptr::slice_from_raw_parts(data_ptr, data.len());
             &mut *(slice_ptr as *const PData<T> as *mut _)
         }
+    }
+
+    pub fn write_singleton(dest: &mut [u8], data: T) -> &mut Self {
+        Self::write(dest, [data])
     }
 
     pub fn read(src: &[u8]) -> &Self {
@@ -98,7 +104,7 @@ impl<T: Copy + Sized> Deref for PData<T> {
     }
 }
 
-impl<T : Copy + Sized> DerefMut for PData<T> {
+impl<T: Copy + Sized> DerefMut for PData<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -116,6 +122,8 @@ impl<T: Copy + Sized> Persist for PData<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use crate::persist::block::Blocks;
     use crate::persist::{PData, PersistentVec};
 
@@ -132,7 +140,14 @@ mod tests {
     fn persistent_vec_pdata() {
         let block = Blocks.new();
         let mut p_vec: PersistentVec<u8> = PersistentVec::new(block);
+        p_vec.extend(iter::repeat(0).take(32));
 
+        let split = p_vec.split_mut(16);
+        assert_eq!(split.len(), 2);
 
+        let lower = PData::<i32>::write_singleton(split.write(0).unwrap(), 32);
+        let upper = PData::<i32>::write_singleton(split.write(1).unwrap(), 128);
+
+        println!("{:?}", p_vec);
     }
 }

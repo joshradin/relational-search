@@ -1,0 +1,11 @@
+[package]
+name = "docatlas-daemon"
+edition = "2021"
+version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.29.1", features = ["full"] }
+futures = "0.3.28"
+future-utils = "0.12.1"

@@ -2,19 +2,19 @@
 
 use std::cell::UnsafeCell;
 use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem::transmute;
 use std::ops::{Bound, Deref, DerefMut, Not, RangeBounds};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::vec;
 
-use crate::persist::block::Block;
+use crate::persist::block::{Block, Blocks};
 use crate::persist::Persist;
 
 /// A persistent vector.
 ///
 /// Designed to simulate the std [`Vec`](std::vec::Vec) as closely as possible.
-#[derive(Debug)]
 pub struct PersistentVec<T: Persist + ?Sized> {
     block: Block,
     _kind: PhantomData<T>,
@@ -34,9 +34,14 @@ impl<T: Persist> Persist for RawVec<T> {
 }
 
 impl<T: Persist> PersistentVec<T> {
+    /// Creates a persistent vector in-memory
+    #[cfg(test)]
+    pub fn in_memory() -> Self {
+        Self::new(Blocks.new())
+    }
+
     /// Creates a new persistent vector on a given block.
-    pub fn new(block: Block) -> Self
-    {
+    pub fn new(block: Block) -> Self {
         unsafe {
             block.assert_can_contain::<usize>();
         }
@@ -71,6 +76,13 @@ impl<T: Persist> PersistentVec<T> {
         unsafe {
             self.block.size()
                 - ((self.as_data_ptr() as *const u8).offset_from(self.block.as_ptr())) as usize
+        }
+    }
+
+    /// Reserves an additional amount of capacity to store `n` amount of `T`
+    pub fn reserve(&mut self, capacity: usize) {
+        unsafe {
+            self.block.reserve(capacity * T::size());
         }
     }
 
@@ -219,6 +231,15 @@ impl<T: Persist> PersistentVec<T> {
     }
 }
 
+impl<T: Debug + Persist> Debug for PersistentVec<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PersistentVec")
+            .field("block", &self.block)
+            .field("slice", &self.as_slice())
+            .finish()
+    }
+}
+
 impl<T: Persist> AsRef<[T]> for PersistentVec<T> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
@@ -288,11 +309,10 @@ impl<T: Persist> Extend<T> for PersistentVec<T> {
 #[derive(Debug)]
 pub struct Split<'a, T: Persist> {
     src: &'a PersistentVec<T>,
-    split_size: usize
+    split_size: usize,
 }
 
 impl<'a, T: Persist> Split<'a, T> {
-
     /// Gets the number of splits.
     pub fn len(&self) -> usize {
         let start = self.src.len() / self.split_size;
@@ -316,8 +336,7 @@ impl<'a, T: Persist> Split<'a, T> {
     }
 }
 
-
-impl <'a, T: Persist> IntoIterator for &'a Split<'a, T> {
+impl<'a, T: Persist> IntoIterator for &'a Split<'a, T> {
     type Item = &'a [T];
     type IntoIter = vec::IntoIter<&'a [T]>;
 
@@ -328,7 +347,6 @@ impl <'a, T: Persist> IntoIterator for &'a Split<'a, T> {
             if let Some(slice) = self.get(i) {
                 output.push(slice)
             }
-
         }
         output.into_iter()
     }
@@ -340,19 +358,22 @@ impl <'a, T: Persist> IntoIterator for &'a Split<'a, T> {
 pub struct SplitMut<'a, T: Persist> {
     src: UnsafeCell<&'a mut PersistentVec<T>>,
     split_size: usize,
-    access: Box<[AtomicIsize]>
+    access: Box<[AtomicIsize]>,
 }
 
 impl<'a, T: Persist> SplitMut<'a, T> {
-
-
     fn new(src: &'a mut PersistentVec<T>, split_size: usize) -> Self {
-
         let split_count = Self::split_count(src, split_size);
-        let access = std::iter::repeat_with(|| AtomicIsize::new(0)).take(split_count).collect::<Vec<_>>()
+        let access = std::iter::repeat_with(|| AtomicIsize::new(0))
+            .take(split_count)
+            .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        Self { src: UnsafeCell::new(src), split_size, access }
+        Self {
+            src: UnsafeCell::new(src),
+            split_size,
+            access,
+        }
     }
 
     /// Gets the number of splits.
@@ -374,15 +395,11 @@ impl<'a, T: Persist> SplitMut<'a, T> {
     }
 
     fn get_source(&self) -> &PersistentVec<T> {
-        unsafe {
-            &*self.src.get()
-        }
+        unsafe { &*self.src.get() }
     }
 
     fn get_source_mut(&self) -> &mut PersistentVec<T> {
-        unsafe {
-            &mut *self.src.get()
-        }
+        unsafe { &mut *self.src.get() }
     }
 
     /// Gets the n-th split of data, if present
@@ -398,12 +415,8 @@ impl<'a, T: Persist> SplitMut<'a, T> {
                     None
                 }
             }) {
-                Ok(_) => {
-                    Some(&self.get_source()[lower..upper])
-                }
-                Err(_) => {
-                    None
-                }
+                Ok(_) => Some(&self.get_source()[lower..upper]),
+                Err(_) => None,
             }
         } else {
             None
@@ -416,7 +429,10 @@ impl<'a, T: Persist> SplitMut<'a, T> {
         let upper = self.get_source().len().min((index + 1) * self.split_size);
 
         if lower < self.get_source().len() {
-            if self.access[index].compare_exchange(0, 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            if self.access[index]
+                .compare_exchange(0, 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
                 Some(&mut self.get_source_mut()[lower..upper])
             } else {
                 None
@@ -425,7 +441,6 @@ impl<'a, T: Persist> SplitMut<'a, T> {
             None
         }
     }
-
 }
 
 #[derive(Debug)]
@@ -644,11 +659,9 @@ mod test {
         assert_eq!(split.len(), 2);
 
         let mut lower = split.write(0).unwrap();
-        lower[5]= 10;
+        lower[5] = 10;
         let mut upper = split.write(1).unwrap();
         upper[10] = 15;
-
-        
     }
 
     #[test]
@@ -668,6 +681,5 @@ mod test {
             assert!(split.write(0).is_none());
             assert!(split.read(0).is_some());
         }
-
     }
 }

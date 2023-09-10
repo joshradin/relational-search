@@ -1,11 +1,15 @@
 //! A schema defines the mapping of an index
 
-use crate::fields::FieldKind;
+use std::iter;
 use std::iter::FusedIterator;
 use std::ops::{
     Index, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 use std::vec::Drain;
+use crate::document::Document;
+
+use crate::fields::FieldKind;
+use crate::persist::PersistentVec;
 
 /// A schema defines an ordered array of fields
 #[derive(Debug)]
@@ -55,6 +59,24 @@ impl Schema {
     /// Gets the number of bytes required to the store a row of the given schema.
     pub fn row_size(&self) -> usize {
         self.iter().map(|field| field.kind.size()).sum()
+    }
+
+    /// Gets a split over a block, where each split is a row
+    pub fn row_bytes<'p>(&self, p_vec: &'p mut PersistentVec<u8>) -> crate::persist::SplitMut<'p, u8> {
+        p_vec.split_mut(self.row_size())
+    }
+
+    /// Inserts documents into a given schema. This performs no checks onto the data and it's validity
+    /// beyond it being the correct size.
+    pub fn insert<I : IntoIterator<Item=Document>>(&self, p_vec: &mut PersistentVec<u8>, documents: I) -> Result<usize, ()> {
+        let documents = documents.into_iter().collect::<Vec<_>>();
+        let byte_req = documents.len() * self.row_size();
+        p_vec.reserve(byte_req);
+        p_vec.extend(iter::repeat(0).take(byte_req));
+
+
+        todo!()
+
     }
 }
 
@@ -157,11 +179,25 @@ pub struct SchemaField {
 
 #[cfg(test)]
 mod tests {
-    use crate::schema::Schema;
+    use crate::fields::FieldKind;
+    use crate::persist::PersistentVec;
+    use crate::schema::{Schema, SchemaField};
 
     #[test]
     fn index_schema() {
-        let schema = Schema::new();
-        assert_eq!(schema[..].len(), 0);
+        let schema = Schema::from_iter([SchemaField {
+            name: "start_time".to_string(),
+            kind: FieldKind::Number(8),
+        }]);
+        assert_eq!(schema[..].len(), 1);
+
+        let mut p_vec = PersistentVec::<u8>::in_memory();
+        p_vec.extend([0u8; 32]);
+        let split = schema.row_bytes(&mut p_vec);
+
+        for i in 0..split.len() {
+            let row = split.read(i).unwrap();
+            assert_eq!(row.len(), schema.row_size());
+        }
     }
 }

@@ -12,4 +12,5 @@ pub mod shared;
 
 pub mod prelude {
     //! The prelude re-exports common types and functions
+    pub use super::persist::*;
 }
