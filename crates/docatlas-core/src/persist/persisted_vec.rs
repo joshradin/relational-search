@@ -1,9 +1,12 @@
 //! A persisted vector
 
+use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
+use std::mem::transmute;
 use std::ops::{Bound, Deref, DerefMut, Not, RangeBounds};
-use std::ptr::addr_of;
+use std::sync::atomic::{AtomicIsize, Ordering};
+use std::vec;
 
 use crate::persist::block::Block;
 use crate::persist::Persist;
@@ -12,17 +15,28 @@ use crate::persist::Persist;
 ///
 /// Designed to simulate the std [`Vec`](std::vec::Vec) as closely as possible.
 #[derive(Debug)]
-pub struct PersistentVec<T: Persist> {
+pub struct PersistentVec<T: Persist + ?Sized> {
     block: Block,
     _kind: PhantomData<T>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct RawVec<T: Persist>(usize, T);
+#[derive(Debug)]
+struct RawVec<T: Persist>([T]);
+
+impl<T: Persist> Persist for RawVec<T> {
+    fn size() -> usize {
+        usize::size()
+    }
+
+    fn size_of(&self) -> usize {
+        usize::size() + self.0.len() * T::size()
+    }
+}
 
 impl<T: Persist> PersistentVec<T> {
     /// Creates a new persistent vector on a given block.
-    pub fn new(block: Block) -> Self {
+    pub fn new(block: Block) -> Self
+    {
         unsafe {
             block.assert_can_contain::<usize>();
         }
@@ -34,11 +48,15 @@ impl<T: Persist> PersistentVec<T> {
     }
 
     unsafe fn as_raw_vec(&self) -> *const RawVec<T> {
-        self.block.as_aligned_ptr::<RawVec<T>>()
+        let len = *self.block.as_typed_ptr::<usize>();
+        let data_ptr = self.block.as_typed_ptr::<usize>().add(1) as *const T;
+        transmute(std::ptr::slice_from_raw_parts(data_ptr, len))
     }
 
     unsafe fn as_raw_vec_mut(&mut self) -> *mut RawVec<T> {
-        self.block.as_aligned_ptr_mut::<RawVec<T>>()
+        let len = *self.block.as_typed_ptr::<usize>();
+        let data_ptr = self.block.as_typed_mut_ptr::<usize>().add(1) as *mut T;
+        transmute(std::ptr::slice_from_raw_parts_mut(data_ptr, len))
     }
 
     /// Creates a new persistent vector on a given block.
@@ -57,51 +75,49 @@ impl<T: Persist> PersistentVec<T> {
     }
 
     /// Gets the vector as a slice
-    pub fn as_slice(&self) -> &[T] {
-        unsafe {
-            let arr = std::ptr::slice_from_raw_parts(self.as_data_ptr(), self.len());
-            &*arr
-        }
+    pub fn as_slice(&self) -> &[T]
+    where
+        T: Sized,
+    {
+        unsafe { &(*self.as_raw_vec()).0 }
     }
 
     /// Gets this vector as a mutable slice
-    pub fn as_slice_mut(&mut self) -> &mut [T] {
-        unsafe {
-            let len = self.len();
-            let arr = std::ptr::slice_from_raw_parts_mut(self.as_data_ptr_mut(), len);
-            &mut *arr
-        }
+    pub fn as_slice_mut(&mut self) -> &mut [T]
+    where
+        T: Sized,
+    {
+        unsafe { &mut (*self.as_raw_vec_mut()).0 }
     }
 
+    /// Gets the length of the vector
     pub fn len(&self) -> usize {
-        unsafe {
-            let raw_vec = self.as_raw_vec();
-            (*raw_vec).0
-        }
+        unsafe { *self.block.as_typed_ptr::<usize>() }
     }
 
     fn set_len(&mut self, len: usize) {
         unsafe {
-            let raw_vec = self.as_raw_vec_mut();
-            (*raw_vec).0 = len;
+            let len_ptr = self.block.as_typed_mut_ptr::<usize>();
+            *len_ptr = len;
         }
     }
 
     fn as_data_ptr(&self) -> *const T {
-        unsafe { &(*self.as_raw_vec()).1 }
+        self.as_slice().as_ptr()
     }
 
     fn as_data_ptr_mut(&mut self) -> *mut T {
-        unsafe { &mut (*self.as_raw_vec_mut()).1 }
+        self.as_slice_mut().as_mut_ptr()
     }
 
     /// Pushes a value to the end of the vector
     pub fn push(&mut self, value: T) {
         while self.len() + 1 >= self.capacity() {
             unsafe {
-                // doubles the block size while the len is greater or equal to the capacity
+                // doubles the block size while the len is greater or equal to the capacity, and
+                // makes sure the added value can be stored.
                 let capacity = self.capacity();
-                self.block.reserve(capacity * std::mem::size_of::<T>());
+                self.block.reserve(capacity * T::size() + value.size_of());
             }
         }
 
@@ -186,6 +202,21 @@ impl<T: Persist> PersistentVec<T> {
     {
         Drain::new(self, range)
     }
+
+    /// Splits the data into slices of a given length
+    pub fn split(&self, len: usize) -> Split<T> {
+        Split {
+            src: self,
+            split_size: len,
+        }
+    }
+
+    /// Gains access over the vector as a set of splits with a given length.
+    ///
+    /// Each split can be accessed individually to manipulate data within them.
+    pub fn split_mut(&mut self, len: usize) -> SplitMut<T> {
+        SplitMut::new(self, len)
+    }
 }
 
 impl<T: Persist> AsRef<[T]> for PersistentVec<T> {
@@ -253,6 +284,150 @@ impl<T: Persist> Extend<T> for PersistentVec<T> {
     }
 }
 
+/// Gives a split over a persistent vector
+#[derive(Debug)]
+pub struct Split<'a, T: Persist> {
+    src: &'a PersistentVec<T>,
+    split_size: usize
+}
+
+impl<'a, T: Persist> Split<'a, T> {
+
+    /// Gets the number of splits.
+    pub fn len(&self) -> usize {
+        let start = self.src.len() / self.split_size;
+        if self.src.len() % self.split_size == 0 {
+            start
+        } else {
+            start + 1
+        }
+    }
+
+    /// Gets the n-th split of data, if present
+    pub fn get(&self, index: usize) -> Option<&[T]> {
+        let lower = index * self.split_size;
+        let upper = self.src.len().min((index + 1) * self.split_size);
+
+        if lower < self.src.len() {
+            Some(&self.src[lower..upper])
+        } else {
+            None
+        }
+    }
+}
+
+
+impl <'a, T: Persist> IntoIterator for &'a Split<'a, T> {
+    type Item = &'a [T];
+    type IntoIter = vec::IntoIter<&'a [T]>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let size = self.len();
+        let mut output = vec![];
+        for i in 0..size {
+            if let Some(slice) = self.get(i) {
+                output.push(slice)
+            }
+
+        }
+        output.into_iter()
+    }
+}
+
+/// Gives a split over a persistent vector, allowing for access to access to multiple components of the
+/// size vector as slices at once
+#[derive(Debug)]
+pub struct SplitMut<'a, T: Persist> {
+    src: UnsafeCell<&'a mut PersistentVec<T>>,
+    split_size: usize,
+    access: Box<[AtomicIsize]>
+}
+
+impl<'a, T: Persist> SplitMut<'a, T> {
+
+
+    fn new(src: &'a mut PersistentVec<T>, split_size: usize) -> Self {
+
+        let split_count = Self::split_count(src, split_size);
+        let access = std::iter::repeat_with(|| AtomicIsize::new(0)).take(split_count).collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Self { src: UnsafeCell::new(src), split_size, access }
+    }
+
+    /// Gets the number of splits.
+    pub fn len(&self) -> usize {
+        unsafe {
+            let src = &*self.src.get();
+            let split_size = self.split_size;
+            Self::split_count(src, split_size)
+        }
+    }
+
+    fn split_count(src: &PersistentVec<T>, split_size: usize) -> usize {
+        let start = src.len() / split_size;
+        if src.len() % split_size == 0 {
+            start
+        } else {
+            start + 1
+        }
+    }
+
+    fn get_source(&self) -> &PersistentVec<T> {
+        unsafe {
+            &*self.src.get()
+        }
+    }
+
+    fn get_source_mut(&self) -> &mut PersistentVec<T> {
+        unsafe {
+            &mut *self.src.get()
+        }
+    }
+
+    /// Gets the n-th split of data, if present
+    pub fn read(&self, index: usize) -> Option<&[T]> {
+        let lower = index * self.split_size;
+        let upper = self.get_source().len().min((index + 1) * self.split_size);
+
+        if lower < self.get_source().len() {
+            match self.access[index].fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+                if v <= 0 {
+                    Some(v - 1)
+                } else {
+                    None
+                }
+            }) {
+                Ok(_) => {
+                    Some(&self.get_source()[lower..upper])
+                }
+                Err(_) => {
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Gets write access to n-th split of data, if present and it's currently not already borrowed
+    pub fn write(&self, index: usize) -> Option<&mut [T]> {
+        let lower = index * self.split_size;
+        let upper = self.get_source().len().min((index + 1) * self.split_size);
+
+        if lower < self.get_source().len() {
+            if self.access[index].compare_exchange(0, 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+                Some(&mut self.get_source_mut()[lower..upper])
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+}
+
 #[derive(Debug)]
 pub struct Drain<'a, T: Persist> {
     vec: &'a mut PersistentVec<T>,
@@ -309,8 +484,9 @@ impl<'a, T: Persist> Drop for Drain<'a, T> {
 
 #[cfg(test)]
 mod test {
-    use crate::persist::block::Blocks;
     use tempfile::tempdir;
+
+    use crate::persist::block::Blocks;
 
     use super::*;
 
@@ -445,5 +621,53 @@ mod test {
             assert_eq!(p_vec.len(), 26);
             assert_eq!(p_vec[25], 'z');
         }
+    }
+
+    #[test]
+    fn split() {
+        let block = Blocks.new();
+        let vec: PersistentVec<_> = PersistentVec::with_iter(block, 0..1000);
+        let split = vec.split(100);
+        assert_eq!(split.len(), 10);
+
+        for (index, split) in split.into_iter().enumerate() {
+            println!("split = {split:?}");
+            assert_eq!(index * 100, split[0]);
+        }
+    }
+
+    #[test]
+    fn split_mut() {
+        let block = Blocks.new();
+        let mut vec: PersistentVec<_> = PersistentVec::with_iter(block, 0..100);
+        let split = vec.split_mut(50);
+        assert_eq!(split.len(), 2);
+
+        let mut lower = split.write(0).unwrap();
+        lower[5]= 10;
+        let mut upper = split.write(1).unwrap();
+        upper[10] = 15;
+
+        
+    }
+
+    #[test]
+    fn split_protects_data() {
+        let block = Blocks.new();
+        let mut vec: PersistentVec<_> = PersistentVec::with_iter(block, 0..100);
+        let split = vec.split_mut(50);
+        assert_eq!(split.len(), 2);
+
+        {
+            let lower_mut = split.write(0).unwrap();
+            assert!(split.write(0).is_none());
+            assert!(split.read(0).is_none());
+        }
+        {
+            let lower = split.read(0).unwrap();
+            assert!(split.write(0).is_none());
+            assert!(split.read(0).is_some());
+        }
+
     }
 }

@@ -6,12 +6,14 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter, Pointer};
 use std::fs::File;
 use std::hash::Hash;
-use std::io;
+use std::marker::PhantomData;
+use std::mem::transmute;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::{io, ptr, slice};
 
-use memmap::{MmapMut, MmapOptions};
+use memmap::MmapMut;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::ser::Error as SerError;
@@ -183,15 +185,15 @@ impl Block {
     }
 
     /// Gets an aligned pointer to a type within this block
-    pub unsafe fn as_aligned_ptr<T: Persist>(&self) -> *const T {
+    pub unsafe fn as_typed_ptr<T: Persist>(&self) -> *const T {
         let ptr = self.as_ptr();
-        T::read(ptr)
+        ptr as *const T
     }
 
     /// Gets an aligned mutable pointer to a type within this block
-    pub unsafe fn as_aligned_ptr_mut<T: Persist>(&mut self) -> *mut T {
+    pub unsafe fn as_typed_mut_ptr<T: Persist>(&mut self) -> *mut T {
         let ptr = self.as_ptr_mut();
-        T::read(ptr) as *mut _
+        ptr as *mut T
     }
 
     /// reserves an additional amount of bytes of space in of disk space.
@@ -244,12 +246,6 @@ impl Drop for Block {
     }
 }
 
-/// A block pointer.
-#[derive(Debug)]
-pub struct BlockPtr<T: Persist> {
-    offset: isize,
-}
-
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
@@ -272,7 +268,7 @@ mod tests {
         unsafe {
             let mut block = Blocks.new();
 
-            let mut v_mut = block.as_aligned_ptr_mut::<(usize, u32)>();
+            let mut v_mut = block.as_typed_mut_ptr::<(usize, u32)>();
             *v_mut = (usize::MAX, 0);
 
             let v_1 = &mut (*v_mut).1;

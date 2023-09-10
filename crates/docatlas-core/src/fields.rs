@@ -1,9 +1,10 @@
 //! The fields that make up a document.
 
-use num_bigfloat::BigFloat;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+
+use num_bigfloat::BigFloat;
 
 /// A view of a set of fields.
 #[derive(Debug)]
@@ -34,14 +35,23 @@ pub struct Field {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldKind {
     /// Keywords are non-tokenized
-    Keyword,
+    Keyword(usize),
     /// Text fields are tokenized
-    Text,
+    Text(usize),
     /// Just a number
-    Number,
+    Number(usize),
 }
 
 impl FieldKind {
+    /// Gets the size required to store the field
+    pub fn size(&self) -> usize {
+        match self {
+            FieldKind::Keyword(u) => *u,
+            FieldKind::Text(u) => *u,
+            FieldKind::Number(u) => *u,
+        }
+    }
+
     /// A field kind that is directly indexable.
     pub fn indexable(&self) -> bool {
         todo!()
@@ -73,4 +83,22 @@ pub enum FieldData {
     Bytes(Arc<[u8]>),
     /// A floating point number of a dynamic size
     Number(BigFloat),
+}
+
+/// A type that can be represent fields
+pub trait AsFields {
+    type IntoIter<'a>: IntoIterator<Item = (&'a str, &'a Field)>
+    where
+        Self: 'a;
+
+    /// Gets the fields of some value
+    fn as_fields(&self) -> Self::IntoIter<'_>;
+}
+
+impl AsFields for Fields {
+    type IntoIter<'a> = Vec<(&'a str, &'a Field)>;
+
+    fn as_fields(&self) -> Self::IntoIter<'_> {
+        self.map.iter().map(|(k, v)| (&**k, v)).collect()
+    }
 }

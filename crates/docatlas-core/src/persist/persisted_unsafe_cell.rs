@@ -23,17 +23,17 @@ impl<T: Persist> PersistedUnsafeCell<T> {
 
     /// Unwraps the value, consuming the cell.
     pub fn into_inner(self) -> T {
-        unsafe { std::ptr::read(self.block.as_aligned_ptr()) }
+        unsafe { std::ptr::read(self.block.as_typed_ptr()) }
     }
 
     /// Gets a mutable to pointer to the wrapped value
     pub fn get(&self) -> *mut T {
-        unsafe { self.block.as_aligned_ptr::<T>() as *mut T }
+        unsafe { self.block.as_typed_ptr::<T>() as *mut T }
     }
 
     /// Gets a mutable reference to the persisted unsafe cell
     pub fn get_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.block.as_aligned_ptr_mut::<T>() }
+        unsafe { &mut *self.block.as_typed_mut_ptr::<T>() }
     }
 }
 

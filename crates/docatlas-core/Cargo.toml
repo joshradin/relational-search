@@ -11,6 +11,7 @@ default = []
 [dependencies]
 argon2 = "0.5.1"
 base64 = "0.21.2"
+bitfield = "0.14.0"
 cfg-if = "1.0.0"
 crossbeam = "0.8.2"
 hexdump = "0.1.1"
@@ -25,6 +26,7 @@ serde = { version = "1.0.182", features = ["derive"] }
 static_assertions = "1.1.0"
 tempfile = "3.7.0"
 thiserror = "1.0.44"
+uuid = { version = "1.4.1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3.7.0"

@@ -51,6 +51,11 @@ impl Schema {
     pub fn get_mut(&mut self, name: impl AsRef<str>) -> Option<&mut SchemaField> {
         self.fields.iter_mut().find(|f| &f.name == name.as_ref())
     }
+
+    /// Gets the number of bytes required to the store a row of the given schema.
+    pub fn row_size(&self) -> usize {
+        self.iter().map(|field| field.kind.size()).sum()
+    }
 }
 
 impl Index<usize> for Schema {
