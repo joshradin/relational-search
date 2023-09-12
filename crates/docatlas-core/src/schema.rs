@@ -1,12 +1,12 @@
 //! A schema defines the mapping of an index
 
+use crate::document::Document;
 use std::iter;
 use std::iter::FusedIterator;
 use std::ops::{
     Index, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 use std::vec::Drain;
-use crate::document::Document;
 
 use crate::fields::FieldKind;
 use crate::persist::PersistentVec;
@@ -62,21 +62,26 @@ impl Schema {
     }
 
     /// Gets a split over a block, where each split is a row
-    pub fn row_bytes<'p>(&self, p_vec: &'p mut PersistentVec<u8>) -> crate::persist::SplitMut<'p, u8> {
+    pub fn row_bytes<'p>(
+        &self,
+        p_vec: &'p mut PersistentVec<u8>,
+    ) -> crate::persist::SplitMut<'p, u8> {
         p_vec.split_mut(self.row_size())
     }
 
     /// Inserts documents into a given schema. This performs no checks onto the data and it's validity
     /// beyond it being the correct size.
-    pub fn insert<I : IntoIterator<Item=Document>>(&self, p_vec: &mut PersistentVec<u8>, documents: I) -> Result<usize, ()> {
+    pub fn insert<I: IntoIterator<Item = Document>>(
+        &self,
+        p_vec: &mut PersistentVec<u8>,
+        documents: I,
+    ) -> Result<usize, ()> {
         let documents = documents.into_iter().collect::<Vec<_>>();
         let byte_req = documents.len() * self.row_size();
         p_vec.reserve(byte_req);
         p_vec.extend(iter::repeat(0).take(byte_req));
 
-
         todo!()
-
     }
 }
 
