@@ -1,10 +1,10 @@
 //! Contains the main loop
 
+use crate::client;
+use crate::client::Client;
 use futures::StreamExt;
 use log::info;
 use tokio::net::TcpListener;
-use crate::client;
-use crate::client::Client;
 
 use crate::config::DaemonConfig;
 use crate::error::DaemonError;
@@ -19,7 +19,6 @@ pub async fn main_loop(config: &DaemonConfig) -> Result<(), DaemonError> {
             let mut stream = client::wrap_async_read(stream);
             let x = stream.next().await;
             // let client = Client::new(stream, sink);
-
         });
     }
     Ok(())

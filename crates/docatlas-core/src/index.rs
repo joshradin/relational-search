@@ -1,5 +1,6 @@
-use crate::fields::Fields;
 use std::path::PathBuf;
+
+use crate::fields::Fields;
 
 #[derive(Debug)]
 pub struct Index {

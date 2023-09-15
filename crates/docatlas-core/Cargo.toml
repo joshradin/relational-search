@@ -27,6 +27,11 @@ static_assertions = "1.1.0"
 tempfile = "3.7.0"
 thiserror = "1.0.44"
 uuid = { version = "1.4.1", features = ["v4"] }
+async-trait = "0.1.73"
+futures = "0.3.28"
+async-stream = "0.3.5"
+tokio = { version = "1.32.0", features = ["net", "io-util", "io-std", "time", "fs"] }
+ron = "0.8.1"
 
 [dev-dependencies]
 tempfile = "3.7.0"
